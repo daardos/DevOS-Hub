@@ -152,120 +152,226 @@
     </main>
 
     <script>
-        // --- ACE INITIALIZATION ---
-        let editor = null;
-        const fallback = document.getElementById('fallbackEditor');
+// --- ИНИЦИАЛИЗАЦИЯ И НАСТРОЙКИ РЕДАКТОРА ---
+let editor = null;
+const fallback = document.getElementById('fallbackEditor');
+const loadStatus = document.getElementById('loadStatus');
 
-        window.onload = function() {
-            try {
-                if (typeof ace !== "undefined") {
-                    editor = ace.edit("ace-editor");
-                    editor.setTheme("ace/theme/one_dark");
-                    editor.session.setMode("ace/mode/javascript");
-                    editor.setOptions({ enableBasicAutocompletion: true, enableLiveAutocompletion: true, fontSize: "14px" });
-                    editor.setValue("console.log('System Active');");
-                    document.getElementById('loadStatus').innerText = "Status: Online (Auto-complete Ready)";
-                } else { throw new Error(); }
-            } catch (e) {
-                fallback.style.display = "block";
-                document.getElementById('loadStatus').innerText = "Status: Offline Mode (Manual Entry)";
-            }
-            renderTasks(); renderSnips();
+function initAce() {
+    try {
+        // Указываем Ace, где искать свои модули (важно для работы автодополнения на GitHub)
+        if (typeof ace !== "undefined") {
+            ace.config.set("basePath", "https://cdnjs.cloudflare.com");
+            
+            editor = ace.edit("ace-editor");
+            editor.setTheme("ace/theme/one_dark");
+            editor.session.setMode("ace/mode/javascript");
+            
+            editor.setOptions({
+                enableBasicAutocompletion: true,
+                enableLiveAutocompletion: true,
+                enableSnippets: true,
+                fontSize: "14px",
+                fontFamily: "Fira Code",
+                useWorker: false // Отключаем воркеры для стабильности на GitHub Pages
+            });
+
+            if (fallback) fallback.style.display = "none";
+            loadStatus.innerText = "Статус: Система Онлайн (Интеллект активен)";
+            loadStatus.style.color = "var(--success)";
+            
+            // Фокусируемся на редакторе
+            editor.focus();
+        } else {
+            throw new Error("Ace not found");
+        }
+    } catch (e) {
+        console.error("Editor Error:", e);
+        if (fallback) fallback.style.display = "block";
+        loadStatus.innerText = "Статус: Автономный режим (библиотека заблокирована)";
+    }
+}
+
+// Запуск при полной загрузке страницы
+window.addEventListener('load', () => {
+    initAce();
+    renderTasks();
+    renderSnips();
+    if(document.getElementById('passRes')) genPass();
+});
+
+// --- НАВИГАЦИЯ МЕЖДУ ВКЛАДКАМИ ---
+document.querySelectorAll('.nav-item[data-tab]').forEach(el => {
+    el.onclick = () => {
+        document.querySelector('.nav-item.active').classList.remove('active');
+        document.querySelector('.tab-content.active').classList.remove('active');
+        el.classList.add('active');
+        document.getElementById(el.dataset.tab).classList.add('active');
+        
+        // Авто-фокус в редактор при возврате в Sandbox
+        if (el.dataset.tab === 'sandbox' && editor) editor.focus();
+    }
+});
+
+// --- ЛОГИКА ВЫПОЛНЕНИЯ КОДА (SANDBOX) ---
+function runCode() {
+    const out = document.getElementById('jsOut');
+    const code = editor ? editor.getValue() : fallback.value;
+    out.innerText = "";
+    try {
+        const logs = [];
+        const mockConsole = { 
+            log: (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : a).join(' ')) 
         };
+        // Выполняем код через конструктор Function
+        new Function('console', code)(mockConsole);
+        out.innerText = logs.join('\n') || "// Выполнено (нет вывода в консоль).";
+    } catch(e) { 
+        out.innerText = ">> Runtime Error: " + e.message; 
+    }
+}
 
-        // --- NAVIGATION ---
-        document.querySelectorAll('.nav-item[data-tab]').forEach(el => {
-            el.onclick = () => {
-                document.querySelector('.nav-item.active').classList.remove('active');
-                document.querySelector('.tab-content.active').classList.remove('active');
-                el.classList.add('active');
-                document.getElementById(el.dataset.tab).classList.add('active');
+// --- SPRINT PLANNER (LocalStorage) ---
+let tasks = JSON.parse(localStorage.getItem('devos_tasks_v7')) || [];
+function renderTasks() {
+    const list = document.getElementById('taskList');
+    if(!list) return;
+    list.innerHTML = tasks.map((t, i) => `
+        <div class="task-item ${t.done ? 'done' : ''}">
+            <input type="checkbox" ${t.done ? 'checked' : ''} onchange="toggleTask(${i})">
+            <span style="flex:1">${t.text}</span>
+            <span style="cursor:pointer; color:var(--danger)" onclick="delTask(${i})">✕</span>
+        </div>
+    `).join('');
+    localStorage.setItem('devos_tasks_v7', JSON.stringify(tasks));
+}
+function addTask() {
+    const inp = document.getElementById('taskInput');
+    if(!inp.value.trim()) return;
+    tasks.push({ text: inp.value, done: false });
+    inp.value = ""; renderTasks();
+}
+function toggleTask(i) { tasks[i].done = !tasks[i].done; renderTasks(); }
+function delTask(i) { tasks.splice(i, 1); renderTasks(); }
+
+// --- CODE LIBRARY (Search + Delete) ---
+let snips = JSON.parse(localStorage.getItem('devos_snips_v7')) || [];
+function renderSnips() {
+    const list = document.getElementById('snipList');
+    if(!list) return;
+    list.innerHTML = snips.map((s, i) => `
+        <div class="snippet-card">
+            <div class="del-snip-btn" onclick="delSnip(${i})">DELETE ✕</div>
+            <strong>${s.title}</strong>
+            <pre>${s.code}</pre>
+        </div>
+    `).join('');
+    localStorage.setItem('devos_snips_v7', JSON.stringify(snips));
+}
+function addSnippet() {
+    const t = document.getElementById('snipTitle'), c = document.getElementById('snipCode');
+    if(!t.value || !c.value) return;
+    snips.unshift({ title: t.value, code: c.value });
+    t.value = ""; c.value = ""; renderSnips();
+}
+function delSnip(i) { if(confirm("Удалить этот сниппет?")) { snips.splice(i, 1); renderSnips(); } }
+
+// --- TOOLBOX: JSON, PASSGEN, B64 ---
+function formatJSON() {
+    const inp = document.getElementById('jsonIn');
+    try { 
+        inp.value = JSON.stringify(JSON.parse(inp.value), null, 4);
+        inp.style.borderColor = "var(--success)";
+    } catch(e) { alert("Ошибка в JSON"); inp.style.borderColor = "var(--danger)"; }
+}
+function genPass() {
+    const res = document.getElementById('passRes');
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
+    let ret = "";
+    const array = new Uint32Array(16); // Генерируем 16 символов
+    window.crypto.getRandomValues(array);
+    for (let i = 0; i < 16; i++) ret += charset.charAt(array[i] % charset.length);
+    res.value = ret;
+}
+function doB64(enc) {
+    const inp = document.getElementById('b64In');
+    try {
+        inp.value = enc ? btoa(unescape(encodeURIComponent(inp.value))) : decodeURIComponent(escape(atob(inp.value)));
+    } catch(e) { alert("Ошибка Base64"); }
+}
+
+// --- API LAB (JSON + HTML Support) ---
+async function apiTest() {
+    const url = document.getElementById('apiUrl').value, out = document.getElementById('apiRes'), stat = document.getElementById('apiStat');
+    if(!url) return;
+    out.innerText = "// Отправка запроса...";
+    try {
+        const res = await fetch(url);
+        stat.innerText = `Status: ${res.status} ${res.statusText}`;
+        stat.style.color = res.ok ? "var(--success)" : "var(--danger)";
+        
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+            const data = await res.json();
+            out.innerText = JSON.stringify(data, null, 2);
+        } else {
+            const text = await res.text();
+            out.innerText = "// Ответ (Text/HTML):\n\n" + text.substring(0, 10000);
+        }
+    } catch(e) {
+        out.innerText = "// Ошибка Fetch: " + e.message + "\n\nСкорее всего, запрос заблокирован политикой CORS.";
+    }
+}
+
+// --- CORE FX ENGINE (Background Grid) ---
+const canvas = document.getElementById('canvasFX'), ctx = canvas.getContext('2d');
+let fxActive = false, particles = [];
+
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener('resize', resizeCanvas); resizeCanvas();
+
+class Particle {
+    constructor() { 
+        this.x = Math.random()*canvas.width; 
+        this.y = Math.random()*canvas.height; 
+        this.vX = (Math.random()-0.5)*0.8; 
+        this.vY = (Math.random()-0.5)*0.8; 
+    }
+    update() { 
+        this.x += this.vX; this.y += this.vY; 
+        if(this.x<0||this.x>canvas.width) this.vX*=-1; 
+        if(this.y<0||this.y>canvas.height) this.vY*=-1; 
+    }
+}
+
+function fxLoop() {
+    if(!fxActive) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach((p, i) => {
+        p.update();
+        ctx.fillStyle = "rgba(56,189,248,0.5)"; ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI*2); ctx.fill();
+        for(let j=i; j<particles.length; j++) {
+            let d = Math.hypot(p.x-particles[j].x, p.y-particles[j].y);
+            if(d < 180) {
+                ctx.strokeStyle = `rgba(56,189,248,${0.25 - d/800})`; ctx.lineWidth = 0.6;
+                ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(particles[j].x, particles[j].y); ctx.stroke();
             }
-        });
-
-        // --- RUN CODE ---
-        function runCode() {
-            const out = document.getElementById('jsOut');
-            const code = editor ? editor.getValue() : fallback.value;
-            out.innerText = "";
-            try {
-                const logs = [];
-                const mock = { log: (...a) => logs.push(a.map(x => typeof x === 'object' ? JSON.stringify(x, null, 2) : x).join(' ')) };
-                new Function('console', code)(mock);
-                out.innerText = logs.join('\n') || "// Done.";
-            } catch(e) { out.innerText = "Error: " + e.message; }
         }
+    });
+    requestAnimationFrame(fxLoop);
+}
 
-        // --- TASK LOGIC ---
-        let tasks = JSON.parse(localStorage.getItem('dev_tasks_v7')) || [];
-        function renderTasks() {
-            const list = document.getElementById('taskList');
-            list.innerHTML = tasks.map((t, i) => `<div class="task-item"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask(${i})"><span style="flex:1">${t.text}</span><span onclick="delTask(${i})" style="color:var(--danger); cursor:pointer">✕</span></div>`).join('');
-            localStorage.setItem('dev_tasks_v7', JSON.stringify(tasks));
-        }
-        function addTask() { const inp = document.getElementById('taskInput'); if(inp.value.trim()){ tasks.push({text:inp.value, done:false}); inp.value=""; renderTasks(); } }
-        function toggleTask(i) { tasks[i].done = !tasks[i].done; renderTasks(); }
-        function delTask(i) { tasks.splice(i, 1); renderTasks(); }
+document.getElementById('fxToggle').onclick = function() {
+    fxActive = !fxActive;
+    this.querySelector('span').innerText = fxActive ? "⚡ CORE FX: ACTIVE" : "⚡ CORE FX: OFF";
+    canvas.style.opacity = fxActive ? "1" : "0";
+    document.body.classList.toggle('fx-active', fxActive);
+    if(fxActive) { 
+        particles = Array.from({length: 150}, () => new Particle()); 
+        fxLoop(); 
+    }
+};
 
-        // --- LIBRARY LOGIC ---
-        let snips = JSON.parse(localStorage.getItem('dev_snips_v7')) || [];
-        function renderSnips() {
-            const list = document.getElementById('snipList');
-            list.innerHTML = snips.map((s, i) => `<div class="snippet-card"><div class="del-btn" onclick="delSnip(${i})">DELETE ✕</div><strong>${s.title}</strong><pre style="color:#818cf8; font-size:12px; margin-top:10px;">${s.code}</pre></div>`).join('');
-            localStorage.setItem('dev_snips_v7', JSON.stringify(snips));
-        }
-        function addSnippet() {
-            const t = document.getElementById('snipTitle'), c = document.getElementById('snipCode');
-            if(t.value && c.value) { snips.unshift({title:t.value, code:c.value}); t.value=""; c.value=""; renderSnips(); }
-        }
-        function delSnip(i) { if(confirm("Удалить?")){ snips.splice(i,1); renderSnips(); } }
-
-        function genPass() {
-            const c = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
-            let p = ""; for(let i=0; i<16; i++) p += c.charAt(Math.floor(Math.random()*c.length));
-            document.getElementById('passRes').value = p;
-        }
-
-        async function apiTest() {
-            const u = document.getElementById('apiUrl').value, o = document.getElementById('apiRes'), s = document.getElementById('apiStat');
-            o.innerText = "Fetching...";
-            try {
-                const r = await fetch(u);
-                s.innerText = `Status: ${r.status}`;
-                const type = r.headers.get("content-type");
-                if (type && type.includes("json")) { const d = await r.json(); o.innerText = JSON.stringify(d, null, 2); }
-                else { const t = await r.text(); o.innerText = t.substring(0, 5000); }
-            } catch(e) { o.innerText = "Error: " + e.message + "\nCheck CORS Policy."; }
-        }
-
-        // --- FX ENGINE ---
-        const canvas = document.getElementById('canvasFX'), ctx = canvas.getContext('2d');
-        let fxActive = false, particles = [];
-        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-        window.onresize = resize; resize();
-
-        document.getElementById('fxToggle').onclick = function() {
-            fxActive = !fxActive;
-            this.querySelector('span').innerText = fxActive ? "⚡ CORE FX: ACTIVE" : "⚡ CORE FX: OFF";
-            canvas.style.opacity = fxActive ? "1" : "0";
-            document.body.classList.toggle('fx-active', fxActive);
-            if(fxActive) { 
-                particles = Array.from({length: 120}, () => ({x:Math.random()*canvas.width, y:Math.random()*canvas.height, vx:(Math.random()-0.5)*0.8, vy:(Math.random()-0.5)*0.8}));
-                const loop = () => {
-                    if(!fxActive) return; ctx.clearRect(0,0,canvas.width,canvas.height);
-                    particles.forEach((p, i) => {
-                        p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>canvas.width) p.vx*=-1; if(p.y<0||p.y>canvas.height) p.vy*=-1;
-                        ctx.fillStyle = "rgba(56,189,248,0.5)"; ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, 7); ctx.fill();
-                        for(let j=i; j<particles.length; j++){
-                            let d = Math.hypot(p.x-particles[j].x, p.y-particles[j].y);
-                            if(d<150){ ctx.strokeStyle=`rgba(56,189,248,${0.2-d/750})`; ctx.lineWidth=0.5; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(particles[j].x,particles[j].y); ctx.stroke(); }
-                        }
-                    });
-                    requestAnimationFrame(loop);
-                };
-                loop();
-            }
-        };
     </script>
 </body>
 </html>
