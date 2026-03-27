@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevOS Hub // Elite Stable v7.5</title>
+    <link href="https://fonts.googleapis.com" rel="stylesheet">
+    
+    <!-- Библиотека редактора -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+    <script src="https://cdnjs.cloudflare.com"></script>
+
+    <style>
+        :root {
+            --bg-color: #050914;
+            --sidebar-color: rgba(10, 15, 30, 0.9);
+            --card-bg: rgba(20, 30, 50, 0.5);
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.3);
+            --success: #10b981;
+            --danger: #f43f5e;
+            --text-main: #f1f5f9;
+            --text-dim: #94a3b8;
+            --border: rgba(56, 189, 248, 0.15);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Inter', sans-serif; background-color: var(--bg-color);
+            background-image: radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.12) 0px, transparent 50%), radial-gradient(at 100% 100%, rgba(56, 189, 248, 0.08) 0px, transparent 50%);
+            color: var(--text-main); display: flex; height: 100vh; overflow: hidden; position: relative;
+        }
+
+        /* Инженерная сетка */
+        body::before {
+            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 35px 35px; z-index: -2; transition: opacity 1s; opacity: 1;
+        }
+        body.fx-active::before { opacity: 0.15; }
+
+        #canvasFX { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; opacity: 0; transition: opacity 1.2s; }
+
+        /* --- SIDEBAR --- */
+        aside {
+            width: 280px; background: var(--sidebar-color); backdrop-filter: blur(20px);
+            border-right: 1px solid var(--border); display: flex; flex-direction: column;
+            padding: 40px 25px; z-index: 100;
+        }
+
+        .logo { font-family: 'Fira Code', monospace; font-size: 1.5rem; font-weight: 800; color: var(--accent); margin-bottom: 40px; text-shadow: 0 0 15px var(--accent-glow); }
+
+        .nav-menu { list-style: none; flex-grow: 1; }
+        .nav-item {
+            padding: 12px 15px; margin-bottom: 8px; border-radius: 10px;
+            cursor: pointer; color: var(--text-dim); transition: 0.2s; display: flex; align-items: center; gap: 12px;
+        }
+        .nav-item:hover { background: rgba(56, 189, 248, 0.1); color: var(--text-main); }
+        .nav-item.active { background: rgba(56, 189, 248, 0.2); color: var(--accent); border: 1px solid var(--accent-glow); }
+
+        /* --- MAIN --- */
+        main { flex-grow: 1; padding: 40px; overflow-y: auto; z-index: 50; }
+        .tab-content { display: none; max-width: 1100px; margin: 0 auto; animation: slideUp 0.4s ease; }
+        .tab-content.active { display: block; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .glass-card { background: var(--card-bg); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 20px; padding: 25px; margin-bottom: 25px; }
+
+        input, textarea { width: 100%; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--border); padding: 14px; border-radius: 10px; color: #fff; outline: none; }
+        
+        .btn { padding: 12px 24px; background: var(--accent); color: #050914; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; transition: 0.3s; z-index: 60; }
+        .btn:hover { box-shadow: 0 0 15px var(--accent-glow); transform: translateY(-1px); }
+
+        .editor-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; border-radius: 15px; overflow: hidden; border: 1px solid var(--border); background: #0c111b; height: 500px; }
+        #ace-editor { height: 100%; width: 100%; font-size: 14px; }
+        .terminal { background: #02040a; padding: 25px; font-family: 'Fira Code', monospace; font-size: 13px; color: var(--success); overflow-y: auto; white-space: pre-wrap; border-left: 1px solid var(--border); }
+
+        .task-item { background: rgba(255,255,255,0.02); padding: 12px; border-radius: 10px; display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+        .snippet-card { background: #02040a; border: 1px solid var(--border); border-radius: 15px; padding: 20px; margin-bottom: 15px; position: relative; }
+        .del-btn { position: absolute; top: 15px; right: 15px; color: var(--danger); cursor: pointer; font-size: 11px; font-weight: 800; }
+    </style>
+</head>
+<body>
+
+    <canvas id="canvasFX"></canvas>
+
+    <aside>
+        <div class="logo">DEV_OS // ELITE</div>
+        <ul class="nav-menu">
+            <li class="nav-item active" data-tab="sandbox">Sandbox</li>
+            <li class="nav-item" data-tab="planner">Planner</li>
+            <li class="nav-item" data-tab="library">Library</li>
+            <li class="nav-item" data-tab="toolbox">Toolbox</li>
+            <li class="nav-item" data-tab="api">API Lab</li>
+        </ul>
+        <div class="nav-item" id="fxToggle" style="margin-top: auto; border: 1px dashed var(--border); justify-content: center; font-size: 0.75rem;">
+            <span>⚡ CORE FX: OFF</span>
+        </div>
+    </aside>
+
+    <main>
+        <section id="sandbox" class="tab-content active">
+            <h1>IDE Sandbox</h1>
+            <p class="subtitle" id="loadStatus">Статус: Загрузка системы...</p>
+            <div class="editor-grid">
+                <div id="ace-editor">
+                    <!-- Запасное поле, если Ace не загрузится -->
+                    <textarea id="fallbackEditor" style="width:100%; height:100%; background:#0c111b; color:#fff; border:none; padding:20px; font-family:'Fira Code'; font-size:14px; display:none; outline:none;" spellcheck="false">console.log("Fallback Mode Active (No Internet)");</textarea>
+                </div>
+                <div id="jsOut" class="terminal">// Console Output...</div>
+            </div>
+            <button class="btn" style="margin-top:20px;" onclick="runCode()">RUN SCRIPT</button>
+        </section>
+
+        <section id="planner" class="tab-content">
+            <h1>Planner</h1>
+            <div class="glass-card">
+                <div style="display:flex; gap:10px;"><input type="text" id="taskInput" placeholder="Add task..."><button class="btn" onclick="addTask()">ADD</button></div>
+                <div id="taskList" style="margin-top: 20px;"></div>
+            </div>
+        </section>
+
+        <section id="library" class="tab-content">
+            <h1>Library</h1>
+            <div class="glass-card">
+                <input type="text" id="snipTitle" placeholder="Title" style="margin-bottom:10px;">
+                <textarea id="snipCode" placeholder="Code..." style="height:100px;"></textarea>
+                <button class="btn" style="margin-top:10px;" onclick="addSnippet()">SAVE SNIPPET</button>
+            </div>
+            <div id="snipList"></div>
+        </section>
+
+        <section id="toolbox" class="tab-content">
+            <h1>Toolbox</h1>
+            <div class="glass-card">
+                <h3>Password Generator</h3>
+                <button class="btn" onclick="genPass()">Generate 16-char</button>
+                <input type="text" id="passRes" readonly style="margin-top:10px; text-align:center; color:var(--accent); font-family:monospace;">
+            </div>
+        </section>
+
+        <section id="api" class="tab-content">
+            <h1>API Lab</h1>
+            <div class="glass-card">
+                <input type="text" id="apiUrl" placeholder="URL (supports https://daardos.github.io)" style="margin-bottom:10px">
+                <button class="btn" onclick="apiTest()">FETCH</button>
+                <div id="apiStat" style="font-size:12px; color:var(--text-dim); margin:5px 0">Status: --</div>
+                <div id="apiRes" class="terminal" style="height:300px; border-radius:12px;"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // --- ACE INITIALIZATION ---
+        let editor = null;
+        const fallback = document.getElementById('fallbackEditor');
+
+        window.onload = function() {
+            try {
+                if (typeof ace !== "undefined") {
+                    editor = ace.edit("ace-editor");
+                    editor.setTheme("ace/theme/one_dark");
+                    editor.session.setMode("ace/mode/javascript");
+                    editor.setOptions({ enableBasicAutocompletion: true, enableLiveAutocompletion: true, fontSize: "14px" });
+                    editor.setValue("console.log('System Active');");
+                    document.getElementById('loadStatus').innerText = "Status: Online (Auto-complete Ready)";
+                } else { throw new Error(); }
+            } catch (e) {
+                fallback.style.display = "block";
+                document.getElementById('loadStatus').innerText = "Status: Offline Mode (Manual Entry)";
+            }
+            renderTasks(); renderSnips();
+        };
+
+        // --- NAVIGATION ---
+        document.querySelectorAll('.nav-item[data-tab]').forEach(el => {
+            el.onclick = () => {
+                document.querySelector('.nav-item.active').classList.remove('active');
+                document.querySelector('.tab-content.active').classList.remove('active');
+                el.classList.add('active');
+                document.getElementById(el.dataset.tab).classList.add('active');
+            }
+        });
+
+        // --- RUN CODE ---
+        function runCode() {
+            const out = document.getElementById('jsOut');
+            const code = editor ? editor.getValue() : fallback.value;
+            out.innerText = "";
+            try {
+                const logs = [];
+                const mock = { log: (...a) => logs.push(a.map(x => typeof x === 'object' ? JSON.stringify(x, null, 2) : x).join(' ')) };
+                new Function('console', code)(mock);
+                out.innerText = logs.join('\n') || "// Done.";
+            } catch(e) { out.innerText = "Error: " + e.message; }
+        }
+
+        // --- TASK LOGIC ---
+        let tasks = JSON.parse(localStorage.getItem('dev_tasks_v7')) || [];
+        function renderTasks() {
+            const list = document.getElementById('taskList');
+            list.innerHTML = tasks.map((t, i) => `<div class="task-item"><input type="checkbox" ${t.done?'checked':''} onchange="toggleTask(${i})"><span style="flex:1">${t.text}</span><span onclick="delTask(${i})" style="color:var(--danger); cursor:pointer">✕</span></div>`).join('');
+            localStorage.setItem('dev_tasks_v7', JSON.stringify(tasks));
+        }
+        function addTask() { const inp = document.getElementById('taskInput'); if(inp.value.trim()){ tasks.push({text:inp.value, done:false}); inp.value=""; renderTasks(); } }
+        function toggleTask(i) { tasks[i].done = !tasks[i].done; renderTasks(); }
+        function delTask(i) { tasks.splice(i, 1); renderTasks(); }
+
+        // --- LIBRARY LOGIC ---
+        let snips = JSON.parse(localStorage.getItem('dev_snips_v7')) || [];
+        function renderSnips() {
+            const list = document.getElementById('snipList');
+            list.innerHTML = snips.map((s, i) => `<div class="snippet-card"><div class="del-btn" onclick="delSnip(${i})">DELETE ✕</div><strong>${s.title}</strong><pre style="color:#818cf8; font-size:12px; margin-top:10px;">${s.code}</pre></div>`).join('');
+            localStorage.setItem('dev_snips_v7', JSON.stringify(snips));
+        }
+        function addSnippet() {
+            const t = document.getElementById('snipTitle'), c = document.getElementById('snipCode');
+            if(t.value && c.value) { snips.unshift({title:t.value, code:c.value}); t.value=""; c.value=""; renderSnips(); }
+        }
+        function delSnip(i) { if(confirm("Удалить?")){ snips.splice(i,1); renderSnips(); } }
+
+        function genPass() {
+            const c = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+            let p = ""; for(let i=0; i<16; i++) p += c.charAt(Math.floor(Math.random()*c.length));
+            document.getElementById('passRes').value = p;
+        }
+
+        async function apiTest() {
+            const u = document.getElementById('apiUrl').value, o = document.getElementById('apiRes'), s = document.getElementById('apiStat');
+            o.innerText = "Fetching...";
+            try {
+                const r = await fetch(u);
+                s.innerText = `Status: ${r.status}`;
+                const type = r.headers.get("content-type");
+                if (type && type.includes("json")) { const d = await r.json(); o.innerText = JSON.stringify(d, null, 2); }
+                else { const t = await r.text(); o.innerText = t.substring(0, 5000); }
+            } catch(e) { o.innerText = "Error: " + e.message + "\nCheck CORS Policy."; }
+        }
+
+        // --- FX ENGINE ---
+        const canvas = document.getElementById('canvasFX'), ctx = canvas.getContext('2d');
+        let fxActive = false, particles = [];
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.onresize = resize; resize();
+
+        document.getElementById('fxToggle').onclick = function() {
+            fxActive = !fxActive;
+            this.querySelector('span').innerText = fxActive ? "⚡ CORE FX: ACTIVE" : "⚡ CORE FX: OFF";
+            canvas.style.opacity = fxActive ? "1" : "0";
+            document.body.classList.toggle('fx-active', fxActive);
+            if(fxActive) { 
+                particles = Array.from({length: 120}, () => ({x:Math.random()*canvas.width, y:Math.random()*canvas.height, vx:(Math.random()-0.5)*0.8, vy:(Math.random()-0.5)*0.8}));
+                const loop = () => {
+                    if(!fxActive) return; ctx.clearRect(0,0,canvas.width,canvas.height);
+                    particles.forEach((p, i) => {
+                        p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>canvas.width) p.vx*=-1; if(p.y<0||p.y>canvas.height) p.vy*=-1;
+                        ctx.fillStyle = "rgba(56,189,248,0.5)"; ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, 7); ctx.fill();
+                        for(let j=i; j<particles.length; j++){
+                            let d = Math.hypot(p.x-particles[j].x, p.y-particles[j].y);
+                            if(d<150){ ctx.strokeStyle=`rgba(56,189,248,${0.2-d/750})`; ctx.lineWidth=0.5; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(particles[j].x,particles[j].y); ctx.stroke(); }
+                        }
+                    });
+                    requestAnimationFrame(loop);
+                };
+                loop();
+            }
+        };
+    </script>
+</body>
+</html>
